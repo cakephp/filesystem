@@ -18,6 +18,7 @@ namespace Cake\Filesystem;
 
 use Cake\Utility\Filesystem as FilesystemUtil;
 use Closure;
+use Generator;
 use Iterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
@@ -103,6 +104,13 @@ class Finder
      * @var bool
      */
     protected bool $ignoreHiddenFiles = true;
+
+    /**
+     * Whether to search recursively
+     *
+     * @var bool
+     */
+    protected bool $recursive = true;
 
     /**
      * The internal filesystem utility
@@ -238,6 +246,18 @@ class Finder
         return $this;
     }
 
+    /**     * Set whether to search recursively into subdirectories.
+     *
+     * @param bool $recursive Whether to search recursively (default: true)
+     * @return $this
+     */
+    public function recursive(bool $recursive = true)
+    {
+        $this->recursive = $recursive;
+
+        return $this;
+    }
+
     /**
      * Get files matching the criteria.
      *
@@ -246,43 +266,107 @@ class Finder
     public function files(): Iterator
     {
         foreach ($this->paths as $path) {
-            $normalizedBasePath = Path::normalize($path);
-
-            $iterator = $this->filesystem->createRecursiveIterator(
-                $path,
-                mode: RecursiveIteratorIterator::LEAVES_ONLY,
-                includeHiddenDirs: !$this->ignoreHiddenFiles,
-                customFilter: $this->buildFilter(),
-            );
-
-            foreach ($iterator as $file) {
-                /** @var \SplFileInfo $file */
-                if (!$file->isFile()) {
-                    continue;
-                }
-
-                if ($this->ignoreHiddenFiles && str_starts_with($file->getFilename(), '.')) {
-                    continue;
-                }
-
-                if (!$this->matchesNamePatterns($file)) {
-                    continue;
-                }
-
-                if (!$this->matchesPathPatterns($file)) {
-                    continue;
-                }
-
-                if (!$this->matchesDepth($file, $normalizedBasePath)) {
-                    continue;
-                }
-
-                if (!$this->matchesGlobPatterns($file, $normalizedBasePath)) {
-                    continue;
-                }
-
-                yield $file;
+            if (!$this->recursive || $this->isDepthZero()) {
+                yield from $this->iterateNonRecursive($path);
+            } else {
+                yield from $this->iterateRecursive($path);
             }
+        }
+    }
+
+    /**
+     * Check if depth is limited to zero (top-level only).
+     *
+     * @return bool
+     */
+    protected function isDepthZero(): bool
+    {
+        foreach ($this->depths as $condition) {
+            if (trim($condition) === '== 0') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Iterate recursively through a directory.
+     *
+     * @param string $path The directory path
+     * @return \Generator<\SplFileInfo>
+     */
+    protected function iterateRecursive(string $path): Generator
+    {
+        $normalizedBasePath = Path::normalize($path);
+
+        $iterator = $this->filesystem->createRecursiveIterator(
+            $path,
+            mode: RecursiveIteratorIterator::LEAVES_ONLY,
+            includeHiddenDirs: !$this->ignoreHiddenFiles,
+            customFilter: $this->buildFilter(),
+        );
+
+        foreach ($iterator as $file) {
+            /** @var \SplFileInfo $file */
+            if (!$file->isFile()) {
+                continue;
+            }
+
+            if ($this->ignoreHiddenFiles && str_starts_with($file->getFilename(), '.')) {
+                continue;
+            }
+
+            if (!$this->matchesNamePatterns($file)) {
+                continue;
+            }
+
+            if (!$this->matchesPathPatterns($file)) {
+                continue;
+            }
+
+            if (!$this->matchesDepth($file, $normalizedBasePath)) {
+                continue;
+            }
+
+            if (!$this->matchesGlobPatterns($file, $normalizedBasePath)) {
+                continue;
+            }
+
+            yield $file;
+        }
+    }
+
+    /**
+     * Iterate non-recursively through a directory.
+     *
+     * @param string $path The directory path
+     * @return \Generator<\SplFileInfo>
+     */
+    protected function iterateNonRecursive(string $path): Generator
+    {
+        $iterator = $this->filesystem->createIterator(
+            $path,
+            customFilter: $this->buildNonRecursiveFilter(),
+        );
+
+        foreach ($iterator as $file) {
+            /** @var \SplFileInfo $file */
+            if (!$file->isFile()) {
+                continue;
+            }
+
+            if ($this->ignoreHiddenFiles && str_starts_with($file->getFilename(), '.')) {
+                continue;
+            }
+
+            if (!$this->matchesNamePatterns($file)) {
+                continue;
+            }
+
+            // Skip path(), notPath(), depth(), pattern() checks - not applicable in non-recursive mode
+
+            yield $file;
         }
     }
 
@@ -308,6 +392,33 @@ class Finder
             // Check excluded path patterns
             foreach ($this->notPathPatterns as $pattern) {
                 if (str_contains($file->getPathname(), $pattern)) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+    }
+
+    /**
+     * Build a filter callback for the non-recursive iterator.
+     *
+     * @return \Closure|null
+     */
+    protected function buildNonRecursiveFilter(): ?Closure
+    {
+        if ($this->exclude === []) {
+            return null;
+        }
+
+        return function (SplFileInfo $file): bool {
+            if (!$file->isDir()) {
+                return true;
+            }
+
+            $filename = $file->getFilename();
+            foreach ($this->exclude as $excluded) {
+                if ($filename === $excluded) {
                     return false;
                 }
             }

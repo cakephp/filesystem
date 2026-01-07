@@ -200,9 +200,9 @@ class Finder
     /**
      * Add a glob pattern for full path matching.
      *
-     * Supports wildcards like `src/ ** /*.php` for recursive matching.
+     * Supports wildcards like `src/**\/*.php` for recursive matching.
      *
-     * @param string $pattern Glob pattern (e.g., 'src/ ** /*.php', 'tests/ ** /*Test.php')
+     * @param string $pattern Glob pattern (e.g., 'src/**\/*.php', 'tests/**\/*Test.php')
      * @return $this
      */
     public function pattern(string $pattern)

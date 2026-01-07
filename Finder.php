@@ -246,6 +246,8 @@ class Finder
     public function files(): Iterator
     {
         foreach ($this->paths as $path) {
+            $normalizedBasePath = Path::normalize($path);
+
             $iterator = $this->filesystem->createRecursiveIterator(
                 $path,
                 mode: RecursiveIteratorIterator::LEAVES_ONLY,
@@ -271,11 +273,11 @@ class Finder
                     continue;
                 }
 
-                if (!$this->matchesDepth($file, $path)) {
+                if (!$this->matchesDepth($file, $normalizedBasePath)) {
                     continue;
                 }
 
-                if (!$this->matchesGlobPatterns($file, $path)) {
+                if (!$this->matchesGlobPatterns($file, $normalizedBasePath)) {
                     continue;
                 }
 
@@ -375,16 +377,16 @@ class Finder
      * Check if file matches glob patterns.
      *
      * @param \SplFileInfo $file The file to check
-     * @param string $basePath The base path to calculate relative path from
+     * @param string $normalizedBasePath The normalized base path to calculate relative path from
      * @return bool
      */
-    protected function matchesGlobPatterns(SplFileInfo $file, string $basePath): bool
+    protected function matchesGlobPatterns(SplFileInfo $file, string $normalizedBasePath): bool
     {
         if ($this->globPatterns === []) {
             return true;
         }
 
-        $relativePath = Path::makeRelative($file->getPathname(), $basePath);
+        $relativePath = Path::makeRelative($file->getPathname(), $normalizedBasePath);
 
         foreach ($this->globPatterns as $pattern) {
             if (Path::matches($pattern, $relativePath)) {
@@ -399,18 +401,17 @@ class Finder
      * Check if file matches depth conditions.
      *
      * @param \SplFileInfo $file The file to check
-     * @param string $basePath The base path to calculate depth from
+     * @param string $normalizedBasePath The normalized base path to calculate depth from
      * @return bool
      */
-    protected function matchesDepth(SplFileInfo $file, string $basePath): bool
+    protected function matchesDepth(SplFileInfo $file, string $normalizedBasePath): bool
     {
         if ($this->depths === []) {
             return true;
         }
 
-        $basePath = Path::normalize($basePath);
         $filePath = Path::normalize($file->getPath());
-        $relativePath = Path::makeRelative($filePath, $basePath);
+        $relativePath = Path::makeRelative($filePath, $normalizedBasePath);
 
         $depth = $relativePath === '' ? 0 : count(explode('/', $relativePath));
 

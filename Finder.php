@@ -249,7 +249,7 @@ class Finder
             $iterator = $this->filesystem->createRecursiveIterator(
                 $path,
                 mode: RecursiveIteratorIterator::LEAVES_ONLY,
-                skipHiddenDirs: $this->ignoreHiddenFiles,
+                includeHiddenDirs: !$this->ignoreHiddenFiles,
                 customFilter: $this->buildFilter(),
             );
 

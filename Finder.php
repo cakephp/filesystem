@@ -94,7 +94,7 @@ class Finder
     /**
      * Depth conditions
      *
-     * @var array<string>
+     * @var array<array{0: string, 1: int}>
      */
     protected array $depths = [];
 
@@ -223,12 +223,13 @@ class Finder
     /**
      * Add a depth condition.
      *
-     * @param string $condition Depth condition (e.g., '== 0', '< 3')
+     * @param int $level The depth level (0 = top-level directory)
+     * @param string $operator The comparison operator (default: '==')
      * @return $this
      */
-    public function depth(string $condition)
+    public function depth(int $level, string $operator = '==')
     {
-        $this->depths[] = $condition;
+        $this->depths[] = [$operator, $level];
 
         return $this;
     }
@@ -246,7 +247,7 @@ class Finder
         return $this;
     }
 
-    /**     * Set whether to search recursively into subdirectories.
+    /** Set whether to search recursively into subdirectories.
      *
      * @param bool $recursive Whether to search recursively (default: true)
      * @return $this
@@ -282,7 +283,7 @@ class Finder
     protected function isDepthZero(): bool
     {
         foreach ($this->depths as $condition) {
-            if (trim($condition) === '== 0') {
+            if ($condition === ['==', 0]) {
                 return true;
             }
         }
@@ -526,8 +527,8 @@ class Finder
 
         $depth = $relativePath === '' ? 0 : count(explode('/', $relativePath));
 
-        foreach ($this->depths as $condition) {
-            if (!$this->evaluateDepthCondition($depth, $condition)) {
+        foreach ($this->depths as [$operator, $level]) {
+            if (!$this->evaluateDepthCondition($depth, $operator, $level)) {
                 return false;
             }
         }
@@ -539,27 +540,20 @@ class Finder
      * Evaluate a depth condition.
      *
      * @param int $depth The actual depth
-     * @param string $condition The condition to evaluate (e.g., '== 0', '< 3')
+     * @param string $operator The comparison operator
+     * @param int $level The target depth level
      * @return bool
      */
-    protected function evaluateDepthCondition(int $depth, string $condition): bool
+    protected function evaluateDepthCondition(int $depth, string $operator, int $level): bool
     {
-        $condition = trim($condition);
-
-        if (preg_match('/^(==|!=|<|>|<=|>=)\s*(\d+)$/', $condition, $matches)) {
-            $operator = $matches[1];
-            $value = (int)$matches[2];
-
-            return match ($operator) {
-                '==' => $depth === $value,
-                '!=' => $depth !== $value,
-                '<' => $depth < $value,
-                '>' => $depth > $value,
-                '<=' => $depth <= $value,
-                default => $depth >= $value,
-            };
-        }
-
-        return true;
+        return match ($operator) {
+            '==' => $depth === $level,
+            '!=' => $depth !== $level,
+            '<' => $depth < $level,
+            '>' => $depth > $level,
+            '<=' => $depth <= $level,
+            '>=' => $depth >= $level,
+            default => true,
+        };
     }
 }

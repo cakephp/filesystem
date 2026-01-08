@@ -81,9 +81,14 @@ class Path
             }
         }
 
-        // Build relative path - add .. for each directory we need to go up
+        // Build relative path
+        $relativeParts = [];
+
+        // Add .. for each directory we need to go up
         $upCount = count($fromParts) - $commonLength;
-        $relativeParts = $upCount > 0 ? array_fill(0, $upCount, '..') : [];
+        for ($i = 0; $i < $upCount; $i++) {
+            $relativeParts[] = '..';
+        }
 
         // Add remaining path segments
         $relativeParts = array_merge(
@@ -95,70 +100,25 @@ class Path
     }
 
     /**
-     * Joins path segments together.
+     * Joins path segments together using the correct directory separator.
      *
-     * Preserves existing directory separators (/ or \) from the input segments.
-     * Use Path::normalize() if you need to convert all separators to forward slashes.
-     *
-     * @param string|bool|null ...$segments Path segments to join. The last argument
-     *  can be a bool|null to control trailing slash handling:
-     *  - If true, ensures a trailing forward-slash is added if one doesn't exist
-     *  - If false, ensures any trailing slash is removed
-     *  - If null, ignores trailing slashes (leaves as-is)
+     * @param string ...$segments Path segments to join
      * @return string The joined path
      */
-    public static function join(string|bool|null ...$segments): string
+    public static function join(string ...$segments): string
     {
-        $isSlash = fn(string $char): bool => $char === '/' || $char === '\\';
-
-        // Extract trailing parameter if last argument is bool or null (not string)
-        $trailing = null;
-        $lastIdx = count($segments) - 1;
-        if ($lastIdx >= 0) {
-            $last = $segments[$lastIdx];
-            // If last is bool, or null with preceding string, it's a trailing parameter
-            if (is_bool($last) || ($last === null && ($lastIdx === 0 || is_string($segments[$lastIdx - 1])))) {
-                $trailing = array_pop($segments);
-            }
+        if ($segments === []) {
+            return '';
         }
 
-        $numParts = count($segments);
-        if ($numParts === 0) {
-            return $trailing === true ? '/' : '';
+        $result = str_replace('\\', '/', array_shift($segments));
+
+        foreach ($segments as $segment) {
+            $segment = str_replace('\\', '/', $segment);
+            $result = rtrim($result, '/') . '/' . ltrim($segment, '/');
         }
 
-        $path = (string)$segments[0];
-        for ($i = 1; $i < $numParts; ++$i) {
-            $part = $segments[$i];
-            if ($part === '' || $part === null) {
-                continue;
-            }
-            $part = (string)$part;
-
-            $pathEndsWithSlash = $path !== '' && $isSlash($path[-1]);
-            $partStartsWithSlash = $isSlash($part[0]);
-
-            if ($pathEndsWithSlash && $partStartsWithSlash) {
-                $path .= substr($part, 1);
-            } elseif ($pathEndsWithSlash || $partStartsWithSlash) {
-                $path .= $part;
-            } else {
-                $path .= '/' . $part;
-            }
-        }
-
-        // Handle trailing slash
-        if ($trailing === true) {
-            if ($path === '' || !$isSlash($path[-1])) {
-                $path .= '/';
-            }
-        } elseif ($trailing === false) {
-            if ($path !== '' && $isSlash($path[-1])) {
-                $path = substr($path, 0, -1);
-            }
-        }
-
-        return $path;
+        return $result;
     }
 
     /**

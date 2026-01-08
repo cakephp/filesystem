@@ -111,13 +111,14 @@ class Path
             return '';
         }
 
-        $result = array_shift($segments);
+        $result = str_replace('\\', '/', array_shift($segments));
 
         foreach ($segments as $segment) {
-            $result = rtrim($result, '/\\') . '/' . ltrim($segment, '/\\');
+            $segment = str_replace('\\', '/', $segment);
+            $result = rtrim($result, '/') . '/' . ltrim($segment, '/');
         }
 
-        return static::normalize($result);
+        return $result;
     }
 
     /**

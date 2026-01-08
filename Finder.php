@@ -16,6 +16,8 @@ declare(strict_types=1);
  */
 namespace Cake\Filesystem;
 
+use Cake\Filesystem\Enum\DepthOperator;
+use Cake\Filesystem\Enum\FinderMode;
 use Cake\Utility\Filesystem as FilesystemUtil;
 use Closure;
 use Generator;
@@ -24,10 +26,11 @@ use RecursiveIteratorIterator;
 use SplFileInfo;
 
 /**
- * Finder provides a fluent interface for finding files in directories.
+ * Finder provides a fluent interface for finding files and directories.
  *
  * Example usage:
  * ```php
+ * // Find files
  * $finder = new Finder();
  * $files = $finder
  *     ->in('src')
@@ -38,6 +41,17 @@ use SplFileInfo;
  * foreach ($files as $file) {
  *     echo $file->getPathname();
  * }
+ *
+ * // Find directories
+ * $directories = (new Finder())
+ *     ->in('src')
+ *     ->exclude('vendor')
+ *     ->directories();
+ *
+ * // Find both files and directories
+ * $all = (new Finder())
+ *     ->in('src')
+ *     ->all();
  * ```
  */
 class Finder
@@ -94,7 +108,7 @@ class Finder
     /**
      * Depth conditions
      *
-     * @var array<array{0: string, 1: int}>
+     * @var array<array{0: \Cake\Filesystem\Enum\DepthOperator, 1: int}>
      */
     protected array $depths = [];
 
@@ -111,6 +125,13 @@ class Finder
      * @var bool
      */
     protected bool $recursive = true;
+
+    /**
+     * The iteration mode (files, directories, or all)
+     *
+     * @var \Cake\Filesystem\Enum\FinderMode|null
+     */
+    protected ?FinderMode $mode = null;
 
     /**
      * The internal filesystem utility
@@ -224,10 +245,10 @@ class Finder
      * Add a depth condition.
      *
      * @param int $level The depth level (0 = top-level directory)
-     * @param string $operator The comparison operator (default: '==')
+     * @param \Cake\Filesystem\Enum\DepthOperator $operator The comparison operator (default: EQUAL)
      * @return $this
      */
-    public function depth(int $level, string $operator = '==')
+    public function depth(int $level, DepthOperator $operator = DepthOperator::EQUAL)
     {
         $this->depths[] = [$operator, $level];
 
@@ -266,6 +287,42 @@ class Finder
      */
     public function files(): Iterator
     {
+        $this->mode = FinderMode::FILES;
+
+        return $this->iterate();
+    }
+
+    /**
+     * Get directories matching the criteria.
+     *
+     * @return \Iterator<\SplFileInfo>
+     */
+    public function directories(): Iterator
+    {
+        $this->mode = FinderMode::DIRECTORIES;
+
+        return $this->iterate();
+    }
+
+    /**
+     * Get both files and directories matching the criteria.
+     *
+     * @return \Iterator<\SplFileInfo>
+     */
+    public function all(): Iterator
+    {
+        $this->mode = FinderMode::ALL;
+
+        return $this->iterate();
+    }
+
+    /**
+     * Iterate over items matching the criteria.
+     *
+     * @return \Generator<\SplFileInfo>
+     */
+    protected function iterate(): Generator
+    {
         foreach ($this->paths as $path) {
             if (!$this->recursive || $this->isDepthZero()) {
                 yield from $this->iterateNonRecursive($path);
@@ -276,6 +333,22 @@ class Finder
     }
 
     /**
+     * Check if file/directory matches the mode filter.
+     *
+     * @param \SplFileInfo $file The file or directory to check
+     * @return bool
+     */
+    protected function matchesMode(SplFileInfo $file): bool
+    {
+        return match ($this->mode) {
+            FinderMode::FILES => $file->isFile(),
+            FinderMode::DIRECTORIES => $file->isDir(),
+            FinderMode::ALL => true,
+            null => true,
+        };
+    }
+
+    /**
      * Check if depth is limited to zero (top-level only).
      *
      * @return bool
@@ -283,7 +356,7 @@ class Finder
     protected function isDepthZero(): bool
     {
         foreach ($this->depths as $condition) {
-            if ($condition === ['==', 0]) {
+            if ($condition === [DepthOperator::EQUAL, 0]) {
                 return true;
             }
         }
@@ -301,16 +374,22 @@ class Finder
     {
         $normalizedBasePath = Path::normalize($path);
 
+        // Use SELF_FIRST when looking for directories to include them in iteration
+        // Use LEAVES_ONLY when looking for files only for optimization
+        $iteratorMode = $this->mode === FinderMode::FILES
+            ? RecursiveIteratorIterator::LEAVES_ONLY
+            : RecursiveIteratorIterator::SELF_FIRST;
+
         $iterator = $this->filesystem->createRecursiveIterator(
             $path,
-            mode: RecursiveIteratorIterator::LEAVES_ONLY,
+            mode: $iteratorMode,
             includeHiddenDirs: !$this->ignoreHiddenFiles,
             customFilter: $this->buildFilter(),
         );
 
         foreach ($iterator as $file) {
             /** @var \SplFileInfo $file */
-            if (!$file->isFile()) {
+            if (!$this->matchesMode($file)) {
                 continue;
             }
 
@@ -353,7 +432,7 @@ class Finder
 
         foreach ($iterator as $file) {
             /** @var \SplFileInfo $file */
-            if (!$file->isFile()) {
+            if (!$this->matchesMode($file)) {
                 continue;
             }
 
@@ -364,8 +443,6 @@ class Finder
             if (!$this->matchesNamePatterns($file)) {
                 continue;
             }
-
-            // Skip path(), notPath(), depth(), pattern() checks - not applicable in non-recursive mode
 
             yield $file;
         }
@@ -540,20 +617,19 @@ class Finder
      * Evaluate a depth condition.
      *
      * @param int $depth The actual depth
-     * @param string $operator The comparison operator
+     * @param \Cake\Filesystem\Enum\DepthOperator $operator The comparison operator
      * @param int $level The target depth level
      * @return bool
      */
-    protected function evaluateDepthCondition(int $depth, string $operator, int $level): bool
+    protected function evaluateDepthCondition(int $depth, DepthOperator $operator, int $level): bool
     {
         return match ($operator) {
-            '==' => $depth === $level,
-            '!=' => $depth !== $level,
-            '<' => $depth < $level,
-            '>' => $depth > $level,
-            '<=' => $depth <= $level,
-            '>=' => $depth >= $level,
-            default => true,
+            DepthOperator::EQUAL => $depth === $level,
+            DepthOperator::NOT_EQUAL => $depth !== $level,
+            DepthOperator::LESS_THAN => $depth < $level,
+            DepthOperator::GREATER_THAN => $depth > $level,
+            DepthOperator::LESS_THAN_OR_EQUAL => $depth <= $level,
+            DepthOperator::GREATER_THAN_OR_EQUAL => $depth >= $level,
         };
     }
 }
